@@ -1,4 +1,6 @@
-CREATE OR REPLACE FUNCTION agh.cascade_delete(
+-- TODO Add documentation
+CREATE OR REPLACE FUNCTION pg_temp.cascade_delete(
+    p_schema_name TEXT,
     p_table_name TEXT,
     p_key_values JSONB
 ) RETURNS TEXT AS $$
@@ -16,24 +18,22 @@ DECLARE
     child_key_values_query TEXT;
     child_key_value JSONB;
     child_backup_sql TEXT;
+    affected_rows INT;
 BEGIN
-    -- Ensure correct schema-qualified table name
-    quoted_table := quote_ident('agh') || '.' || quote_ident(p_table_name);
+    quoted_table := quote_ident(p_schema_name) || '.' || quote_ident(p_table_name);
 
-    -- Get the primary key columns of the target table
     SELECT array_agg(attname)
     INTO pk_columns
     FROM pg_index i
     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
     JOIN pg_class c ON c.oid = i.indrelid
     JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE i.indisprimary AND n.nspname = 'agh' AND c.relname = p_table_name;
+    WHERE i.indisprimary AND n.nspname = p_schema_name AND c.relname = p_table_name;
 
     IF pk_columns IS NULL THEN
         RAISE EXCEPTION 'No primary key found for table %', p_table_name;
     END IF;
 
-    -- Loop through foreign keys referencing this table
     FOR fk_record IN (
           SELECT    quote_ident(tc.table_schema) || '.' || quote_ident(tc.table_name) AS child_table,
                     quote_ident(tc.table_name) AS plain_child_table,
@@ -52,7 +52,6 @@ BEGIN
           AND       ccu.table_name = p_table_name
           GROUP BY  1, 2, 5, kcu.constraint_name
     ) LOOP
-        -- Construct WHERE conditions for child records
         key_conditions := format(
           '(%3$s) IN (
             SELECT *
@@ -60,25 +59,21 @@ BEGIN
           )', p_key_values, fk_record.fk_column_type, array_to_string(fk_record.fk_column, ', ')
         );
 
-        -- Backup child records
         backup_query := format('SELECT array_to_json(array_agg(row_to_json(t))) FROM %s t WHERE %s', fk_record.child_table, key_conditions);
-        raise notice '%', backup_query;
         EXECUTE backup_query INTO row_data;
         
         IF row_data IS NOT NULL THEN
-            backup_sql := backup_sql || format('INSERT INTO %s SELECT * FROM jsonb_populate_recordset(NULL::%s, %L);\n', fk_record.child_table, fk_record.child_table, row_data);
-            -- Get the primary key columns of the child table
             SELECT array_agg(attname)
             INTO child_pk_columns
             FROM pg_index i
             JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
             JOIN pg_class c ON c.oid = i.indrelid
             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE i.indisprimary AND n.nspname = 'agh' AND c.relname = fk_record.plain_child_table;
-            -- Get child primary key values for recursion
+            WHERE i.indisprimary AND n.nspname = p_schema_name AND c.relname = fk_record.plain_child_table;
+
             child_key_values_query := format('SELECT array_to_json(array_agg(row_to_json(t))) FROM (SELECT %s FROM %s WHERE %s) t', array_to_string(child_pk_columns, ', '), fk_record.child_table, key_conditions);
             EXECUTE child_key_values_query INTO child_key_values;
-            -- Recursively delete child records and collect backup SQL
+
             IF child_key_values IS NOT NULL THEN
                 FOR child_key_value IN 
                   EXECUTE format('SELECT * FROM jsonb_array_elements(%L)', child_key_values)
@@ -88,28 +83,23 @@ BEGIN
                 END LOOP;
             END IF;
         END IF;
-
-
-        -- Generate delete query for child table
-        delete_query := format('DELETE FROM %s WHERE %s', fk_record.child_table, key_conditions);
-        EXECUTE delete_query;
     END LOOP;
 
-    -- Construct WHERE conditions for the target row
     key_conditions := (
         SELECT string_agg(format('%I = %L', col, p_key_values->>col), ' AND ')
         FROM unnest(pk_columns) col
     );
 
-    -- Backup main record
     backup_query := format('SELECT array_to_json(array_agg(row_to_json(t))) FROM %s t WHERE %s', quoted_table, key_conditions);
     EXECUTE backup_query INTO row_data;
     IF row_data IS NOT NULL THEN
-        backup_sql := backup_sql || format('INSERT INTO %s SELECT * FROM jsonb_populate_recordset(NULL::%s, %L);\n', quoted_table, quoted_table, row_data);
+        backup_sql := backup_sql || format('INSERT INTO %s SELECT * FROM jsonb_populate_recordset(NULL::%s, %L)' || CHR(10), quoted_table, quoted_table, row_data);
     END IF;
 
-    -- Delete the main record
     EXECUTE format('DELETE FROM %s WHERE %s', quoted_table, key_conditions);
+    GET DIAGNOSTICS affected_rows = row_count;
+    RAISE INFO 'DELETE FROM % WHERE %', quoted_table, key_conditions;
+    RAISE INFO 'Deleted % rows', affected_rows;
 
     RETURN backup_sql;
 END;
