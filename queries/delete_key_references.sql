@@ -131,7 +131,7 @@ BEGIN
         backup_sql := backup_sql || format('INSERT INTO %s SELECT * FROM jsonb_populate_recordset(NULL::%s, %L)' || CHR(10), quoted_table, quoted_table, row_data);
     END IF;
 
-    -- Exclui o registro principal e retorna as linhas afetadas
+    
     delete_query := format('DELETE FROM %s WHERE %s', quoted_table, key_conditions);
     EXECUTE delete_query;
     GET DIAGNOSTICS affected_rows = row_count;
