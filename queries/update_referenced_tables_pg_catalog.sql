@@ -1,4 +1,3 @@
--- CONNECTION: host=172.17.62.50|port=6544|database=postgres|user=postgres
 /**
  * Update the target table keys and where it's referenced
  * 
