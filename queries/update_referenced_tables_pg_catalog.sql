@@ -20,17 +20,21 @@
  *    columns_names   TEXT
  *  )
  */
-CREATE
-OR        REPLACE FUNCTION pg_temp.update_referenced_tables (
-          tableName TEXT,
-          keyNames TEXT[],
-          currentValues INT[],
-          newValues INT[] DEFAULT ARRAY[NULL]::INT[],
-          checkedTablesKeys TEXT[] DEFAULT ARRAY[NULL]::TEXT[],
-          starting BOOL DEFAULT FALSE
-          ) RETURNS TABLE (changed_tabled TEXT, constraint_name TEXT, columns_names TEXT) LANGUAGE plpgsql AS $$
-DECLARE r RECORD;
-DECLARE checkReferenced BOOL := NULL;
+CREATE OR REPLACE FUNCTION pg_temp.update_referenced_tables (
+    tableName TEXT
+  , keyNames TEXT[]
+  , currentValues INT[]
+  , newValues INT[] DEFAULT ARRAY[NULL]::INT[]
+  , checkedTablesKeys TEXT[] DEFAULT ARRAY[NULL]::TEXT[]
+  , starting BOOL DEFAULT FALSE
+) RETURNS TABLE (
+    changed_tabled TEXT
+  , constraint_name TEXT
+  , columns_names TEXT
+) LANGUAGE plpgsql AS $$
+DECLARE
+  r RECORD;
+  checkReferenced BOOL := NULL;
 BEGIN
   FOR r IN
     SELECT  c.constraint_name,
@@ -58,7 +62,7 @@ BEGIN
     GROUP BY 1, 2, 3
 --    HAVING  STRING_AGG(l.attname::TEXT, ',') LIKE '%matricula%vin_codigo%'
   LOOP
-  --  RAISE NOTICE '% - % - % - %', r.local_table, r.local_keys_string, r.foreign_table, r.foreign_keys_string;
+  --  RAISE INFO '% - % - % - %', r.local_table, r.local_keys_string, r.foreign_table, r.foreign_keys_string;
     EXECUTE 'SELECT 1'
       ' FROM ' || r.local_table ||
       ' WHERE ARRAY[' || r.local_keys_string || ']::TEXT[] @> ARRAY[' || ARRAY_TO_STRING(currentValues, ',') || ']::TEXT[]'
@@ -74,8 +78,8 @@ BEGIN
 
     checkedTablesKeys := array_append(checkedTablesKeys, r.keys);
 
-    RAISE NOTICE 'ALTER TABLE % DROP CONSTRAINT %;', r.local_table, r.constraint_name;
-    RAISE NOTICE 'ALTER TABLE % ADD CONSTRAINT % FOREIGN KEY (%) REFERENCES %(%) ON UPDATE CASCADE;', r.local_table, r.constraint_name, r.local_keys_string, r.foreign_table, r.foreign_keys_string;
+    RAISE INFO 'ALTER TABLE % DROP CONSTRAINT %;', r.local_table, r.constraint_name;
+    RAISE INFO 'ALTER TABLE % ADD CONSTRAINT % FOREIGN KEY (%) REFERENCES %(%) ON UPDATE CASCADE;', r.local_table, r.constraint_name, r.local_keys_string, r.foreign_table, r.foreign_keys_string;
     --EXECUTE 'ALTER TABLE ' || r.local_table || ' DROP CONSTRAINT ' || r.constraint_name;
 
     --EXECUTE 'ALTER TABLE ' || r.local_table || ' ADD CONSTRAINT ' || r.constraint_name ||
@@ -99,7 +103,7 @@ BEGIN
     FOR r IN
       SELECT UNNEST(keyNames) AS key, UNNEST(newValues) AS value
     LOOP
-      RAISE NOTICE 'UPDATE % SET % = % WHERE ARRAY[%] = ARRAY[%];', tableName, r.key, r.value, ARRAY_TO_STRING(keyNames, ','), ARRAY_TO_STRING(currentValues, ',');
+      RAISE INFO 'UPDATE % SET % = % WHERE ARRAY[%] = ARRAY[%];', tableName, r.key, r.value, ARRAY_TO_STRING(keyNames, ','), ARRAY_TO_STRING(currentValues, ',');
       --EXECUTE 'UPDATE ' || tableName ||
       --  ' SET ' || r.key || ' = ' || r.value ||
       --  ' WHERE ARRAY[' || ARRAY_TO_STRING(keyNames, ',') || ']::BIGINT[] = ARRAY[' || ARRAY_TO_STRING(currentValues, ',') || ']::BIGINT[]';
@@ -148,8 +152,8 @@ BEGIN
   
       checkedTablesKeys := array_append(checkedTablesKeys, r.keys);
   
-      RAISE NOTICE 'ALTER TABLE % DROP CONSTRAINT %;', r.local_table, r.constraint_name;
-      RAISE NOTICE 'ALTER TABLE % ADD CONSTRAINT % FOREIGN KEY (%) REFERENCES %(%);', r.local_table, r.constraint_name, r.local_keys_string, tableName, keyNames;
+      RAISE INFO 'ALTER TABLE % DROP CONSTRAINT %;', r.local_table, r.constraint_name;
+      RAISE INFO 'ALTER TABLE % ADD CONSTRAINT % FOREIGN KEY (%) REFERENCES %(%);', r.local_table, r.constraint_name, r.local_keys_string, tableName, keyNames;
       --EXECUTE 'ALTER TABLE ' || r.local_table || ' DROP CONSTRAINT ' || r.constraint_name;
   
       --EXECUTE 'ALTER TABLE ' || r.local_table || ' ADD CONSTRAINT ' || r.constraint_name ||
