@@ -29,42 +29,46 @@ DECLARE
   v_row_count INT;
   v_level INT := p_level;
 BEGIN
-    SELECT array_agg(attname ORDER BY attname)
-    INTO v_pk_columns
+    SELECT array_agg(attname ORDER BY attname) INTO v_pk_columns
     FROM pg_index i
-    JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-    JOIN pg_class c ON c.oid = i.indrelid
-    JOIN pg_namespace n ON n.oid = c.relnamespace
-    WHERE i.indisprimary AND n.nspname = p_schema_name AND c.relname = p_table_name;
+    JOIN pg_attribute a
+      ON a.attrelid = i.indrelid
+      AND a.attnum = ANY(i.indkey)
+    JOIN pg_class c
+      ON c.oid = i.indrelid
+    JOIN pg_namespace n
+      ON n.oid = c.relnamespace
+    WHERE i.indisprimary
+      AND n.nspname = p_schema_name
+      AND c.relname = p_table_name;
 
     IF v_pk_columns IS NULL THEN
+      EXECUTE format($$
+        SELECT 'INSERT INTO %s
+        SELECT * FROM JSONB_POPULATE_RECORDSET(NULL::%s, $JSON$' ||
+          ARRAY_TO_JSON(ARRAY_AGG(ROW_TO_JSON(t))) || '$JSON$);'
+        FROM %s t %s$$
+      , v_quoted_table
+      , v_quoted_table
+      , v_quoted_table
+      , p_condition
+      ) INTO v_backup;
 
-        EXECUTE format($$
-          SELECT 'INSERT INTO %s
-          SELECT * FROM JSONB_POPULATE_RECORDSET(NULL::%s, $JSON$' ||
-            ARRAY_TO_JSON(ARRAY_AGG(ROW_TO_JSON(t))) || '$JSON$);'
-          FROM %s t %s$$
-        , v_quoted_table
-        , v_quoted_table
-        , v_quoted_table
-        , p_condition
-        ) INTO v_backup;
+      EXECUTE format(
+        'SELECT COUNT(*)
+        FROM %s %s'
+      , v_quoted_table
+      , p_condition
+      ) INTO v_row_count;
 
-        EXECUTE format(
-          'SELECT COUNT(*)
-          FROM %s %s'
-        , v_quoted_table
-        , p_condition
-        ) INTO v_row_count;
+      v_delete_script := format(
+        'DELETE FROM %s.%s %s'
+      , p_schema_name, p_table_name, p_condition
+      );
 
-        v_delete_script := format(
-          'DELETE FROM %s.%s %s'
-        , p_schema_name, p_table_name, p_condition
-        );
-
-        RETURN QUERY SELECT v_backup, v_delete_script, v_row_count, v_level;
-        EXECUTE v_delete_script;
-        RETURN;
+      RETURN QUERY SELECT v_backup, v_delete_script, v_row_count, v_level;
+      EXECUTE v_delete_script;
+      RETURN;
     END IF;
 
     IF ARRAY_LENGTH(v_pk_columns, 1) > 1 THEN
@@ -122,14 +126,15 @@ BEGIN
         AND kc.table_name = p_table_name
       GROUP BY 1, 2, kcu.constraint_name
     ) LOOP
-      
 
-      IF NOT EXISTS (SELECT format($$
-        SELECT 1 FROM %s t WHERE (%s) IN (%s)$$
-      , v_fk_record.child_table
-      , ARRAY_TO_STRING(v_fk_record.fk_column, ', ')
-      , ARRAY_TO_STRING(v_pk_values, ', ')
-      )) THEN
+      IF NOT EXISTS (
+        SELECT format(
+          'SELECT 1 FROM %s t WHERE (%s) IN (%s)'
+        , v_fk_record.child_table
+        , ARRAY_TO_STRING(v_fk_record.fk_column, ', ')
+        , ARRAY_TO_STRING(v_pk_values, ', ')
+        )
+      ) THEN
         CONTINUE;
       END IF;
 
@@ -144,19 +149,16 @@ BEGIN
     END LOOP;
 
     EXECUTE format($$
-      SELECT 'INSERT INTO %s
-      SELECT * FROM JSONB_POPULATE_RECORDSET(NULL::%s, $JSON$' ||
+      SELECT 'INSERT INTO %1$s
+      SELECT * FROM JSONB_POPULATE_RECORDSET(NULL::%1$s, $JSON$' ||
         ARRAY_TO_JSON(ARRAY_AGG(ROW_TO_JSON(t))) || '$JSON$);'
-      FROM %s t %s$$
-    , v_quoted_table
-    , v_quoted_table
+      FROM %1$s t %s$$
     , v_quoted_table
     , p_condition
     ) INTO v_backup;
 
     EXECUTE format(
-      'SELECT COUNT(*)
-      FROM %s %s'
+      'SELECT COUNT(*) FROM %s %s'
     , v_quoted_table
     , p_condition
     ) INTO v_row_count;
