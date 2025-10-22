@@ -2,7 +2,7 @@ CREATE OR REPLACE FUNCTION pg_temp.cascade_delete_quantified(
   p_schema_name TEXT
 , p_table_name TEXT
 , p_condition TEXT
-, p_level INT
+, p_level INT DEFAULT 0
 ) RETURNS TABLE (
   backup_script TEXT
 , delete_script TEXT
