@@ -39,3 +39,5 @@ WITH RECURSIVE dependant_tables AS (
     AND     d.local_table <> c.local_table
     WHERE   l.attname ILIKE '%' || d.local_key || '%'
 )
+SELECT *
+FROM dependant_tables;
