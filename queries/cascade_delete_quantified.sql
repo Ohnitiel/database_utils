@@ -62,7 +62,7 @@ BEGIN
       ) INTO v_row_count;
 
       v_delete_script := format(
-        'DELETE FROM %s.%s %s'
+        'DELETE FROM %s.%s %s;'
       , p_schema_name, p_table_name, p_condition
       );
 
@@ -164,7 +164,7 @@ BEGIN
     ) INTO v_row_count;
 
     v_delete_script := format(
-      'DELETE FROM %s.%s %s'
+      'DELETE FROM %s.%s %s;'
     , p_schema_name, p_table_name, p_condition
     );
 
